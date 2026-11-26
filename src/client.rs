@@ -887,9 +887,33 @@ impl Client {
             }
         }
         if !exchanged && legacy_secure {
-            secure_tcp(&mut socket, &key)
-                .await
-                .map_err(|e| anyhow!("Failed to secure tcp: {}", e))?;
+            // Self-host fix: the open-source hbbs never initiates the key exchange (it waits
+            // for the client to speak first), so waiting for its first message deadlocks until
+            // the read timeout and the connection fails with "Failed to secure tcp"
+            // (rustdesk/rustdesk#12875). Give the exchange a short chance -- a server that
+            // supports it answers immediately -- then continue on the same socket; nothing
+            // has been sent or consumed at this point, so the socket is still clean.
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                secure_tcp(&mut socket, &key),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    log::warn!(
+                        "Failed to secure tcp to {}, continuing without server key exchange: {}",
+                        rendezvous_server,
+                        err
+                    );
+                }
+                Err(_) => {
+                    log::warn!(
+                        "Rendezvous server {} did not start a key exchange, continuing without",
+                        rendezvous_server
+                    );
+                }
+            }
         }
         // A token or switch code has always taken this socket straight to the punch without
         // waiting for the UDP NAT test. The WebRTC exchange does not replace that wait, it only
