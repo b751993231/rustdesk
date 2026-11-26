@@ -2506,7 +2506,31 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
     ThrottledInterval::new(i)
 }
 
+/// Defaults baked into this self-hosted build: our own rendezvous/relay/API
+/// endpoints and the matching server key, plus allow-https-21114 as a builtin
+/// setting so the API server port is not stripped. Entries only fill slots
+/// that are still empty; user settings and a signed custom.txt keep priority.
+fn seed_selfhost_defaults() {
+    {
+        let mut defaults = config::DEFAULT_SETTINGS.write().unwrap();
+        for (k, v) in [
+            ("custom-rendezvous-server", "d4.itvm.net:21116"),
+            ("relay-server", "d4.itvm.net:21117"),
+            ("api-server", "https://d4.itvm.net:21114"),
+            ("key", "+amsWzOLVWSq7JNZ34AjOXNAaVPE9yBHDGVFm0BInY8="),
+        ] {
+            defaults.entry(k.to_owned()).or_insert_with(|| v.to_owned());
+        }
+    }
+    config::BUILTIN_SETTINGS
+        .write()
+        .unwrap()
+        .entry(keys::OPTION_ALLOW_HTTPS_21114.to_owned())
+        .or_insert_with(|| "Y".to_owned());
+}
+
 pub fn load_custom_client() {
+    seed_selfhost_defaults();
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
         read_custom_client(data.trim());
