@@ -1832,7 +1832,30 @@ impl Client {
                 .with_context(|| "Failed to connect to rendezvous server")?;
 
             if !key.is_empty() && (!token.is_empty() || !switch_code.is_empty()) {
-                secure_tcp(&mut socket, key).await?;
+                // Same self-host fix as in _start: the open-source hbbs never starts the key
+                // exchange on this socket either, so do not wait for it past a short chance;
+                // nothing has been sent on this socket yet, so it stays clean.
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    secure_tcp(&mut socket, key),
+                )
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => {
+                        log::warn!(
+                            "Failed to secure tcp to {}, continuing without server key exchange: {}",
+                            rendezvous_server,
+                            err
+                        );
+                    }
+                    Err(_) => {
+                        log::warn!(
+                            "Rendezvous server {} did not start a key exchange, continuing without",
+                            rendezvous_server
+                        );
+                    }
+                }
             }
 
             ipv4 = socket.local_addr().is_ipv4();
